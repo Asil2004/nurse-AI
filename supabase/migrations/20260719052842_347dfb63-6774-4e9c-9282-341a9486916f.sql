@@ -1,0 +1,1 @@
+ALTER TABLE public.devices ADD COLUMN IF NOT EXISTS bp_measure_requested BOOLEAN NOT NULL DEFAULT false;

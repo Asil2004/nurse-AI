@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: ai-nurse
+    env: node
+    region: frankfurt          # Evropa (O'zbekistonga eng yaqin)
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: SUPABASE_PROJECT_ID
+        sync: false            # Render dashboard'dan qo'lda kiritilas
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false            # MAXFIY — faqat dashboard'dan kiriting!
+      - key: VITE_SUPABASE_PROJECT_ID
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: VITE_SUPABASE_URL
+        sync: false

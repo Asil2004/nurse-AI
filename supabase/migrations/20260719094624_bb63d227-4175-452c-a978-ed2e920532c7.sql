@@ -1,0 +1,1 @@
+ALTER TABLE public.devices ADD COLUMN IF NOT EXISTS alerts_armed boolean NOT NULL DEFAULT false;
