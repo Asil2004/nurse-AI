@@ -63,6 +63,12 @@
 #define SERVO_IDLE_DEG       0
 #define SERVO_RUN_DEG        90
 
+// ========================= RELYE MODULI SOZLAMALARI =========================
+// Diqqat: Bozordagi 95% Arduino/ESP32 optoli relye modullari "ACTIVE-LOW" bo'ladi (LOW berilsa ulanadi).
+// Agar sizning modulingiz teskari (HIGH berilganda) ulansa, RELAY_ON ni HIGH, RELAY_OFF ni LOW qilasiz.
+#define RELAY_ON             LOW    // Relyeni yoqish sathi
+#define RELAY_OFF            HIGH   // Relyeni o'chirish sathi
+
 // ========================= GLOBAL HOZIRGI HOLAT =========================
 Preferences preferences;
 
@@ -121,17 +127,18 @@ void startAntiseptic(int durationS) {
   if (durationS < 1) durationS = 1;
   if (durationS > 600) durationS = 600;
   antisepticDurationS = durationS;
-  digitalWrite(PIN_ANTISEPTIC, HIGH);
+  digitalWrite(PIN_ANTISEPTIC, RELAY_ON);
   antisepticServo.write(SERVO_RUN_DEG);
   antisepticRunning = true;
   antisepticStartedMs = millis();
-  Serial.printf("[ANTISEPTIK] Ishga tushdi: %d s\n", durationS);
+  Serial.printf("[ANTISEPTIK] Ishga tushdi: %d s (PIN 19 yoqildi)\n", durationS);
 }
 
 void stopAntiseptic() {
-  digitalWrite(PIN_ANTISEPTIC, LOW);
+  digitalWrite(PIN_ANTISEPTIC, RELAY_OFF);
   antisepticServo.write(SERVO_IDLE_DEG);
   antisepticRunning = false;
+  Serial.println("[ANTISEPTIK] To'xtatildi (PIN 19 o'chirildi)");
 }
 
 void updateAntiseptic() {
@@ -193,6 +200,16 @@ void handleSerialCommands() {
           String out;
           serializeJson(resp, out);
           Serial.println(out);
+        } else if (cmd == "test_relays") {
+          Serial.println("{\"status\":\"ok\",\"message\":\"Relye 18 va 19 sinovi boshlandi...\"}");
+          digitalWrite(PIN_HEATER_RELAY, RELAY_ON);
+          delay(500);
+          digitalWrite(PIN_HEATER_RELAY, RELAY_OFF);
+          delay(200);
+          digitalWrite(PIN_ANTISEPTIC, RELAY_ON);
+          delay(500);
+          digitalWrite(PIN_ANTISEPTIC, RELAY_OFF);
+          Serial.println("{\"status\":\"ok\",\"message\":\"Relye sinovi muvaffaqiyatli!\"}");
         }
       }
     }
@@ -385,9 +402,24 @@ void envTask(void *pv) {
       xSemaphoreGive(stateMutex);
     }
 
-    // --- Isitgich ---
-    if (wt < heaterOnC)       digitalWrite(PIN_HEATER_RELAY, HIGH);
-    else if (wt > heaterOffC) digitalWrite(PIN_HEATER_RELAY, LOW);
+    // --- Isitgich Relyesi (PIN 18) ---
+    static bool heaterState = false;
+    static unsigned long lastHeaterCheck = 0;
+    if (millis() - lastHeaterCheck > 4000) {
+      lastHeaterCheck = millis();
+      Serial.printf("[NTC / ISITGICH] Suv harorati: %.1f C | Chegara: %.1f - %.1f C | Relye 18: %s\n",
+                    wt, heaterOnC, heaterOffC, heaterState ? "YOQIQ (ON)" : "O'CHIQ (OFF)");
+    }
+
+    if (wt < heaterOnC && !heaterState) {
+      heaterState = true;
+      digitalWrite(PIN_HEATER_RELAY, RELAY_ON);
+      Serial.printf("[ISITGICH] YOQILDI (Suv: %.1f C < %.1f C, PIN 18 -> %s)\n", wt, heaterOnC, RELAY_ON == LOW ? "LOW" : "HIGH");
+    } else if (wt > heaterOffC && heaterState) {
+      heaterState = false;
+      digitalWrite(PIN_HEATER_RELAY, RELAY_OFF);
+      Serial.printf("[ISITGICH] O'CHIRILDI (Suv: %.1f C > %.1f C, PIN 18 -> %s)\n", wt, heaterOffC, RELAY_OFF == LOW ? "LOW" : "HIGH");
+    }
 
     // --- Suyuqlik datchigi (XKC-Y28, PIN 25) ---
     int rawLiquid = digitalRead(PIN_LIQUID);
@@ -424,9 +456,20 @@ void setup() {
   Serial.println("\n--- AI NURSE CABIN FIRMWARE (v4) ---");
 
   pinMode(PIN_BUZZER, OUTPUT);       digitalWrite(PIN_BUZZER, LOW);
-  pinMode(PIN_HEATER_RELAY, OUTPUT); digitalWrite(PIN_HEATER_RELAY, LOW);
-  pinMode(PIN_ANTISEPTIC, OUTPUT);   digitalWrite(PIN_ANTISEPTIC, LOW);
+  pinMode(PIN_HEATER_RELAY, OUTPUT); digitalWrite(PIN_HEATER_RELAY, RELAY_OFF);
+  pinMode(PIN_ANTISEPTIC, OUTPUT);   digitalWrite(PIN_ANTISEPTIC, RELAY_OFF);
   pinMode(PIN_LIQUID, INPUT_PULLUP);
+
+  // Relyelarni ishga tushganda 350ms sinash (chertishini tekshirish uchun)
+  Serial.println("[RELAY] Test: Relye 18 va 19 tekshirilmoqda...");
+  digitalWrite(PIN_HEATER_RELAY, RELAY_ON);
+  delay(350);
+  digitalWrite(PIN_HEATER_RELAY, RELAY_OFF);
+  delay(150);
+  digitalWrite(PIN_ANTISEPTIC, RELAY_ON);
+  delay(350);
+  digitalWrite(PIN_ANTISEPTIC, RELAY_OFF);
+  Serial.println("[RELAY] Test yakunlandi (Ikkala relye ham chertib o'chdi).\n");
 
   Wire.begin(PIN_SDA, PIN_SCL);
   Wire.setClock(400000);

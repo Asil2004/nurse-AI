@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { useServerFn } from "@tanstack/react-start";
+import { startAntisepticNow } from "@/lib/devices-bp.functions";
 import { 
   Heart, 
   Wind, 
@@ -89,14 +91,13 @@ function MedicalKioskPage() {
 
   const vitals = (currentPatient?.current_vitals as any) || {};
 
+  const startAntisepticFn = useServerFn(startAntisepticNow);
+
   // Antiseptikni yoqish
   const handleStartAntiseptic = async () => {
     setAntisepticLoading(true);
     try {
-      await supabase
-        .from("devices")
-        .update({ antiseptic_start_requested: true, antiseptic_duration_s: 15 } as any)
-        .eq("device_id", selectedDevice);
+      await startAntisepticFn({ data: { deviceId: selectedDevice } });
       toast.success("Antiseptik purkagich ishga tushirildi!");
     } catch (e: any) {
       toast.error(e.message || "Xatolik yuz berdi");
