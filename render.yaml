@@ -4,9 +4,11 @@ services:
     env: node
     region: frankfurt          # Evropa (O'zbekistonga eng yaqin)
     plan: free
-    buildCommand: npm install && npm run build
-    startCommand: npm run start
+    buildCommand: npm install && NITRO_PRESET=node-server npm run build
+    startCommand: node .output/server/index.mjs
     envVars:
+      - key: NITRO_PRESET
+        value: "node-server"
       - key: NODE_VERSION
         value: "20"
       - key: SUPABASE_PROJECT_ID
