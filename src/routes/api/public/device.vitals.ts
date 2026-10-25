@@ -24,8 +24,8 @@ export const Route = createFileRoute("/api/public/device/vitals")({
       }),
       POST: async ({ request }) => {
         const cors = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" };
-        const deviceId = request.headers.get("x-device-id");
-        const token = request.headers.get("x-device-token");
+        const deviceId = request.headers.get("x-device-id")?.trim();
+        const token = request.headers.get("x-device-token")?.trim();
         if (!deviceId || !token) {
           return new Response(JSON.stringify({ error: "Missing device credentials" }), { status: 401, headers: cors });
         }
@@ -36,7 +36,8 @@ export const Route = createFileRoute("/api/public/device/vitals")({
         }
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         const { data: device, error } = await supabaseAdmin.from("devices").select("*").eq("device_id", deviceId).maybeSingle();
-        if (error || !device || device.pairing_token !== token) {
+        if (error || !device || device.pairing_token?.trim() !== token) {
+          console.error(`[API Vitals 401] DevId: "${deviceId}", Token: "${token}", DB Token: "${device?.pairing_token}", Error:`, error);
           return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: cors });
         }
         const b = parsed.data;
