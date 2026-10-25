@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,16 +14,33 @@ import {
   AlertTriangle,
   Bluetooth,
   Maximize,
-  Minimize
+  Minimize,
+  ArrowLeft,
+  ShieldCheck,
+  CheckCircle2
 } from "lucide-react";
 
+type KioskSearchParams = {
+  patientId?: string;
+  deviceId?: string;
+};
+
 export const Route = createFileRoute("/_authenticated/kiosk")({
-  head: () => ({ meta: [{ title: "Palata Ekrani — AI Nurse" }] }),
-  component: KioskPage,
+  validateSearch: (search: Record<string, unknown>): KioskSearchParams => {
+    return {
+      patientId: search.patientId as string | undefined,
+      deviceId: search.deviceId as string | undefined,
+    };
+  },
+  head: () => ({ meta: [{ title: "AI Nurse — Palata Monitoring Ekrani" }] }),
+  component: MedicalKioskPage,
 });
 
-export function KioskPage() {
-  const [selectedDevice, setSelectedDevice] = useState<string>("box1");
+function MedicalKioskPage() {
+  const navigate = useNavigate();
+  const search = Route.useSearch();
+
+  const [selectedDevice, setSelectedDevice] = useState<string>(search.deviceId || "box1");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [antisepticLoading, setAntisepticLoading] = useState(false);
   const [bleReading, setBleReading] = useState<{ sys?: number; dia?: number; pul?: number } | null>(null);
@@ -38,21 +55,23 @@ export function KioskPage() {
     },
   });
 
-  // Tanlangan qurilmaning bemori va so'nggi ma'lumotlari
+  // Bemor ma'lumotlari (patientId bo'lsa ID bo'yicha, aks holda deviceId bo'yicha)
   const { data: currentPatient, refetch } = useQuery({
-    queryKey: ["kiosk-patient", selectedDevice],
+    queryKey: ["kiosk-patient", search.patientId, selectedDevice],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("patients")
-        .select("*")
-        .eq("device_id", selectedDevice)
-        .maybeSingle();
-      return data;
+      if (search.patientId) {
+        const { data } = await supabase.from("patients").select("*").eq("id", search.patientId).maybeSingle();
+        if (data?.device_id) setSelectedDevice(data.device_id);
+        return data;
+      } else {
+        const { data } = await supabase.from("patients").select("*").eq("device_id", selectedDevice).maybeSingle();
+        return data;
+      }
     },
-    refetchInterval: 2000, // har 2 sekundda yangilanadi
+    refetchInterval: 2000,
   });
 
-  // Realtime subscription
+  // Realtime yangilanish
   useEffect(() => {
     const channel = supabase
       .channel("kiosk-realtime")
@@ -97,10 +116,19 @@ export function KioskPage() {
     }
   };
 
+  // Bemor profiliga qaytish
+  const handleBackToPatient = () => {
+    if (currentPatient?.id) {
+      navigate({ to: `/patients/${currentPatient.id}` as any });
+    } else {
+      navigate({ to: "/dashboard" });
+    }
+  };
+
   // Rossmax Z5 Web Bluetooth
   const connectRossmax = async () => {
     if (!("bluetooth" in navigator)) {
-      toast.error("Brauzeringiz Bluetooth'ni qo'llab-quvvatlamaydi (Chrome kerak)");
+      toast.error("Brauzeringiz Bluetooth'ni qo'llab-quvvatlamaydi (Google Chrome kerak)");
       return;
     }
     setBleConnecting(true);
@@ -116,7 +144,7 @@ export function KioskPage() {
       });
 
       const server = await device.gatt.connect();
-      toast.success("Tonometr ulandi! O'lchov natijasi kutilmoqda...");
+      toast.success("Tonometr ulandi! O'lchov kutilmoqda...");
       
       const service = await server.getPrimaryService("blood_pressure").catch(async () => {
         return await server.getPrimaryService(0x1810);
@@ -128,7 +156,6 @@ export function KioskPage() {
       await char.startNotifications();
       char.addEventListener("characteristicvaluechanged", async (event: any) => {
         const val = event.target.value;
-        // IEEE-11073 sfloat dekodlash
         const flags = val.getUint8(0);
         const sys = Math.round(val.getUint16(1, true));
         const dia = Math.round(val.getUint16(3, true));
@@ -137,8 +164,17 @@ export function KioskPage() {
         setBleReading({ sys, dia, pul });
         toast.success(`Qon bosimi: ${sys}/${dia} mmHg`);
 
-        // Agar bemor tanlangan bo'lsa, bazaga yozish
         if (currentPatient?.id) {
+          await supabase.from("patients").update({
+            current_vitals: {
+              ...vitals,
+              systolic: sys,
+              diastolic: dia,
+              ...(pul > 0 ? { bpPulse: pul, bpm: pul } : {}),
+              updatedAt: new Date().toISOString()
+            }
+          }).eq("id", currentPatient.id);
+
           await supabase.from("vitals").insert({
             patient_id: currentPatient.id,
             device_id: selectedDevice,
@@ -159,32 +195,49 @@ export function KioskPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 sm:p-6 lg:p-8 flex flex-col justify-between select-none">
-      {/* Yuqori Panel */}
-      <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-800">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-blue-500/20 border border-blue-500/40 grid place-items-center text-blue-400">
-            <Activity className="h-6 w-6 animate-pulse" />
-          </div>
+    <div className="min-h-screen bg-slate-50/80 text-slate-800 p-4 sm:p-6 lg:p-8 flex flex-col justify-between select-none">
+      {/* Yuqori Tibbiy Panel */}
+      <div className="bg-white rounded-3xl p-4 sm:p-5 shadow-sm border border-slate-200/80 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          {/* Ortga Bemor profiliga qaytish tugmasi */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleBackToPatient}
+            className="rounded-2xl border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold px-3 py-5 gap-2 shadow-sm"
+          >
+            <ArrowLeft className="h-4 w-4 text-sky-600" />
+            <span>Ortga (Bemor profili)</span>
+          </Button>
+
+          <div className="h-10 w-px bg-slate-200 hidden sm:block mx-1"></div>
+
           <div>
-            <h1 className="text-xl font-bold tracking-tight">AI NURSE — SMART CABIN</h1>
-            <p className="text-xs text-slate-400">
-              Qurilma: <span className="font-mono text-blue-400 font-semibold">{selectedDevice}</span>
-              {currentPatient && (
-                <span className="ml-3 text-slate-300">
-                  Bemor: <b className="text-white">{currentPatient.name}</b> ({currentPatient.age} yosh)
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">AI NURSE</h1>
+              <span className="bg-sky-100 text-sky-700 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+                PALATA MONITORI
+              </span>
+            </div>
+            <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
+              Kabina: <span className="font-semibold text-slate-700">{selectedDevice}</span>
+              {currentPatient ? (
+                <span className="ml-3 font-medium text-slate-700">
+                  · Bemor: <b className="text-sky-700">{currentPatient.name}</b> ({currentPatient.age} yosh)
                 </span>
+              ) : (
+                <span className="ml-3 text-slate-400 italic">· Bemor biriktirilmagan</span>
               )}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Qurilmani tanlash */}
+        <div className="flex items-center gap-2.5">
+          {/* Qurilma tanlash */}
           <select 
             value={selectedDevice} 
             onChange={(e) => setSelectedDevice(e.target.value)}
-            className="bg-slate-900 border border-slate-700 text-sm rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="bg-slate-100/90 border border-slate-300 text-slate-700 text-sm font-medium rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-500"
           >
             {(devices || []).map((d) => (
               <option key={d.device_id} value={d.device_id}>
@@ -193,147 +246,198 @@ export function KioskPage() {
             ))}
           </select>
 
-          {/* Fullscreen tugmasi */}
+          {/* Fullscreen */}
           <Button 
             variant="outline" 
             size="icon" 
             onClick={toggleFullscreen}
-            className="border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-300"
+            className="rounded-xl border-slate-200 bg-white hover:bg-slate-100 text-slate-600 shadow-sm"
           >
             {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
           </Button>
         </div>
       </div>
 
-      {/* Sensor Ko'rsatkichlari (Grid) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 my-6 flex-1">
+      {/* Sensor Kartochkalari */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6 my-6 flex-1">
         
         {/* 1. Yurak Pulsi (BPM) */}
-        <div className="bg-slate-900/80 border border-rose-500/30 rounded-3xl p-6 flex flex-col justify-between relative overflow-hidden shadow-lg shadow-rose-950/20">
+        <div className="bg-white rounded-3xl p-6 sm:p-7 border border-rose-100 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold tracking-wider text-rose-400 uppercase">Yurak Pulsi</span>
-            <Heart className={`h-6 w-6 text-rose-500 ${vitals.bpm > 0 ? "animate-ping" : ""}`} />
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-rose-50 text-rose-500">
+                <Heart className={`h-5 w-5 ${vitals.bpm > 0 ? "animate-bounce" : ""}`} />
+              </div>
+              <span className="text-sm font-bold tracking-wide text-slate-600 uppercase">Yurak Pulsi</span>
+            </div>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-rose-50 text-rose-600">MAX30105</span>
           </div>
-          <div className="my-4 flex items-baseline gap-3">
-            <span className="text-6xl sm:text-7xl font-black tracking-tight text-white font-mono">
+
+          <div className="my-5 flex items-baseline gap-3">
+            <span className="text-6xl sm:text-7xl font-extrabold text-slate-900 font-mono tracking-tight">
               {vitals.bpm > 0 ? Math.round(vitals.bpm) : "--"}
             </span>
-            <span className="text-xl font-medium text-slate-400">zarba/daq</span>
+            <span className="text-lg font-medium text-slate-400">zarba/daq</span>
           </div>
-          <div className="text-xs text-slate-400">
-            {vitals.bpm > 0 ? "Normal holatda o'lchanmoqda" : "Barmoqni datchikka tekkizing"}
+
+          <div className="flex items-center gap-2 text-xs text-slate-500 border-t border-slate-100 pt-3">
+            <span className={`h-2.5 w-2.5 rounded-full ${vitals.bpm > 0 ? "bg-emerald-500 animate-pulse" : "bg-slate-300"}`}></span>
+            {vitals.bpm > 0 ? "Barmoq aniqlandi, o'lchanmoqda" : "Barmoqni datchikka qo'ying"}
           </div>
         </div>
 
-        {/* 2. Qon Kislorodi (SpO2) */}
-        <div className="bg-slate-900/80 border border-cyan-500/30 rounded-3xl p-6 flex flex-col justify-between relative overflow-hidden shadow-lg shadow-cyan-950/20">
+        {/* 2. Kislorod (SpO2 %) */}
+        <div className="bg-white rounded-3xl p-6 sm:p-7 border border-sky-100 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold tracking-wider text-cyan-400 uppercase">Kislorod To'yinganligi</span>
-            <Droplet className="h-6 w-6 text-cyan-400" />
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-sky-50 text-sky-500">
+                <Droplet className="h-5 w-5" />
+              </div>
+              <span className="text-sm font-bold tracking-wide text-slate-600 uppercase">Kislorod To'yinganligi</span>
+            </div>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-sky-50 text-sky-600">SpO2</span>
           </div>
-          <div className="my-4 flex items-baseline gap-3">
-            <span className="text-6xl sm:text-7xl font-black tracking-tight text-white font-mono">
+
+          <div className="my-5 flex items-baseline gap-3">
+            <span className="text-6xl sm:text-7xl font-extrabold text-slate-900 font-mono tracking-tight">
               {vitals.spo2 > 0 ? `${Math.round(vitals.spo2)}%` : "--"}
             </span>
-            <span className="text-xl font-medium text-slate-400">SpO2</span>
+            <span className="text-lg font-medium text-slate-400">to'yinganlik</span>
           </div>
-          <div className="text-xs text-slate-400">
-            Normal ko'rsatkich: 95% - 100%
+
+          <div className="flex items-center gap-2 text-xs text-slate-500 border-t border-slate-100 pt-3">
+            <CheckCircle2 className="h-4 w-4 text-sky-500" />
+            Normal me'yor: 95% - 100%
           </div>
         </div>
 
         {/* 3. Qon Bosimi (Rossmax Z5) */}
-        <div className="bg-slate-900/80 border border-indigo-500/30 rounded-3xl p-6 flex flex-col justify-between relative overflow-hidden shadow-lg shadow-indigo-950/20">
+        <div className="bg-white rounded-3xl p-6 sm:p-7 border border-indigo-100 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold tracking-wider text-indigo-400 uppercase">Qon Bosimi</span>
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-indigo-50 text-indigo-500">
+                <Activity className="h-5 w-5" />
+              </div>
+              <span className="text-sm font-bold tracking-wide text-slate-600 uppercase">Qon Bosimi</span>
+            </div>
             <Button 
               size="sm" 
-              variant="outline" 
               onClick={connectRossmax}
               disabled={bleConnecting}
-              className="border-indigo-500/40 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 text-xs gap-1.5"
+              className="rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs border border-indigo-200 gap-1.5 shadow-none"
             >
               <Bluetooth className={`h-3.5 w-3.5 ${bleConnecting ? "animate-spin" : ""}`} />
               {bleConnecting ? "Ulanmoqda..." : "Rossmax Ulanish"}
             </Button>
           </div>
-          <div className="my-4 flex items-baseline gap-3">
-            <span className="text-5xl sm:text-6xl font-black tracking-tight text-white font-mono">
-              {bleReading?.sys || vitals.systolic || "--"}/{bleReading?.dia || vitals.diastolic || "--"}
+
+          <div className="my-5 flex items-baseline gap-2">
+            <span className="text-5xl sm:text-6xl font-extrabold text-slate-900 font-mono tracking-tight">
+              {(bleReading?.sys || vitals.systolic) ? `${bleReading?.sys || vitals.systolic}/${bleReading?.dia || vitals.diastolic}` : "--/--"}
             </span>
-            <span className="text-lg font-medium text-slate-400">mmHg</span>
+            <span className="text-base font-medium text-slate-400 ml-1">mmHg</span>
           </div>
-          <div className="text-xs text-slate-400">
-            Tonometr: Rossmax Z5 (Bluetooth)
+
+          <div className="flex items-center justify-between text-xs text-slate-500 border-t border-slate-100 pt-3">
+            <span>Rossmax Z5 (Bluetooth)</span>
+            {(bleReading?.pul || vitals.bpPulse || vitals.bpm) ? (
+              <span className="font-semibold text-indigo-600">PUL: {bleReading?.pul || vitals.bpPulse || vitals.bpm} /min</span>
+            ) : null}
           </div>
         </div>
 
-        {/* 4. Havo Harorati va Namligi */}
-        <div className="bg-slate-900/80 border border-emerald-500/30 rounded-3xl p-6 flex flex-col justify-between relative overflow-hidden shadow-lg shadow-emerald-950/20">
+        {/* 4. Kabina Havosi (AHT10) */}
+        <div className="bg-white rounded-3xl p-6 sm:p-7 border border-teal-100 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold tracking-wider text-emerald-400 uppercase">Kabina Havosi</span>
-            <Wind className="h-6 w-6 text-emerald-400" />
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-teal-50 text-teal-600">
+                <Wind className="h-5 w-5" />
+              </div>
+              <span className="text-sm font-bold tracking-wide text-slate-600 uppercase">Kabina Iqlimi</span>
+            </div>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-teal-50 text-teal-700">AHT10</span>
           </div>
-          <div className="my-4 flex items-baseline justify-between">
+
+          <div className="my-5 flex items-baseline justify-between">
             <div>
-              <div className="text-4xl sm:text-5xl font-black tracking-tight text-white font-mono">
+              <div className="text-4xl sm:text-5xl font-extrabold text-slate-900 font-mono tracking-tight">
                 {vitals.airTemp ? `${vitals.airTemp.toFixed(1)}°C` : "--"}
               </div>
-              <span className="text-xs text-slate-400">Harorat</span>
+              <span className="text-xs font-medium text-slate-400">Harorat</span>
             </div>
             <div className="text-right">
-              <div className="text-4xl sm:text-5xl font-black tracking-tight text-white font-mono">
+              <div className="text-4xl sm:text-5xl font-extrabold text-slate-900 font-mono tracking-tight">
                 {vitals.humidity ? `${Math.round(vitals.humidity)}%` : "--"}
               </div>
-              <span className="text-xs text-slate-400">Namlik</span>
+              <span className="text-xs font-medium text-slate-400">Namlik</span>
             </div>
           </div>
-          <div className="text-xs text-slate-400">AHT10 iqlim nazorati</div>
+
+          <div className="text-xs text-slate-500 border-t border-slate-100 pt-3">
+            Toza va qulay iqlim nazorati
+          </div>
         </div>
 
-        {/* 5. Suv Harorati va Isitgich */}
-        <div className="bg-slate-900/80 border border-amber-500/30 rounded-3xl p-6 flex flex-col justify-between relative overflow-hidden shadow-lg shadow-amber-950/20">
+        {/* 5. Suv Harorati (NTC 10K + Isitgich) */}
+        <div className="bg-white rounded-3xl p-6 sm:p-7 border border-amber-100 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold tracking-wider text-amber-400 uppercase">Suv Harorati</span>
-            <Thermometer className="h-6 w-6 text-amber-400" />
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-amber-50 text-amber-600">
+                <Thermometer className="h-5 w-5" />
+              </div>
+              <span className="text-sm font-bold tracking-wide text-slate-600 uppercase">Suv Harorati</span>
+            </div>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700">NTC 10K</span>
           </div>
-          <div className="my-4 flex items-baseline gap-3">
-            <span className="text-5xl sm:text-6xl font-black tracking-tight text-white font-mono">
+
+          <div className="my-5 flex items-baseline gap-2">
+            <span className="text-5xl sm:text-6xl font-extrabold text-slate-900 font-mono tracking-tight">
               {vitals.waterTemp ? `${vitals.waterTemp.toFixed(1)}°C` : "--"}
             </span>
           </div>
-          <div className="flex items-center gap-2 text-xs">
-            <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse"></span>
-            <span className="text-slate-300">Isitish chegarasi: 22°C - 24°C</span>
+
+          <div className="flex items-center gap-2 text-xs text-slate-500 border-t border-slate-100 pt-3">
+            <span className="h-2.5 w-2.5 rounded-full bg-amber-500"></span>
+            <span>Avtomatik isitish chegarasi: 22°C - 24°C</span>
           </div>
         </div>
 
-        {/* 6. Dori / Suyuqlik Holati */}
-        <div className={`rounded-3xl p-6 flex flex-col justify-between border relative overflow-hidden shadow-lg ${
+        {/* 6. Suyuqlik Datchigi (XKC-Y28) */}
+        <div className={`rounded-3xl p-6 sm:p-7 border shadow-sm flex flex-col justify-between relative overflow-hidden transition-all ${
           vitals.liquidEmpty 
-            ? "bg-rose-950/40 border-rose-500 text-rose-200 animate-pulse" 
-            : "bg-slate-900/80 border-slate-800 text-slate-300"
+            ? "bg-rose-50 border-rose-300 text-rose-900" 
+            : "bg-white border-slate-200 text-slate-800"
         }`}>
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold tracking-wider uppercase">Suyuqlik Datchigi</span>
-            <AlertTriangle className={`h-6 w-6 ${vitals.liquidEmpty ? "text-rose-400" : "text-emerald-400"}`} />
-          </div>
-          <div className="my-4">
-            <span className="text-3xl sm:text-4xl font-extrabold tracking-tight">
-              {vitals.liquidEmpty ? "TUGADI! (Xavf)" : "Yetarli (Normal)"}
+            <div className="flex items-center gap-2">
+              <div className={`p-2 rounded-xl ${vitals.liquidEmpty ? "bg-rose-200 text-rose-700" : "bg-emerald-50 text-emerald-600"}`}>
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <span className="text-sm font-bold tracking-wide uppercase">Suyuqlik / Dori</span>
+            </div>
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${vitals.liquidEmpty ? "bg-rose-200 text-rose-800" : "bg-emerald-50 text-emerald-700"}`}>
+              XKC-Y28
             </span>
           </div>
-          <div className="text-xs opacity-75">
-            {vitals.liquidEmpty ? "Dori tugadi — Klapan avtomatik yopildi!" : "Suyuqlik me'yorida oqmoqda"}
+
+          <div className="my-5">
+            <div className={`text-3xl sm:text-4xl font-extrabold tracking-tight ${vitals.liquidEmpty ? "text-rose-600 animate-pulse" : "text-emerald-600"}`}>
+              {vitals.liquidEmpty ? "TUGADI! (Xavf)" : "Yetarli (Normal)"}
+            </div>
+          </div>
+
+          <div className="text-xs text-slate-500 border-t border-slate-100 pt-3">
+            {vitals.liquidEmpty ? "Klapan avtomatik tarzda yopildi" : "Suyuqlik me'yorida ta'minlanmoqda"}
           </div>
         </div>
 
       </div>
 
-      {/* Pastki Harakatlar Paneli (Katta Tugmalar) */}
-      <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-slate-800">
-        <div className="text-xs text-slate-500">
-          © AI Nurse Smart Cabin System · Planshet Monitoring Rejimi
+      {/* Pastki Harakatlar Paneli */}
+      <div className="bg-white rounded-3xl p-4 sm:p-5 shadow-sm border border-slate-200/80 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <ShieldCheck className="h-4 w-4 text-emerald-600" />
+          <span>AI Nurse Smart Cabin tizimi faol va xavfsiz ishlamoqda</span>
         </div>
 
         <div className="flex items-center gap-3">
@@ -342,7 +446,7 @@ export function KioskPage() {
             size="lg"
             onClick={handleStartAntiseptic}
             disabled={antisepticLoading}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-6 py-6 rounded-2xl shadow-lg shadow-emerald-950/40 text-base gap-2"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-7 py-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-base gap-2"
           >
             <Sparkles className="h-5 w-5" />
             {antisepticLoading ? "Purkalmoqda..." : "🧴 Antiseptik Purkash (15s)"}

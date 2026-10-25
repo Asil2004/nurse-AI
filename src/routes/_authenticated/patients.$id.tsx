@@ -1,6 +1,6 @@
-import { createFileRoute, Link, useParams } from "@tanstack/react-router";
+import { createFileRoute, Link, useParams, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Heart, Activity, Droplets, Thermometer, Save, Pill, AlertTriangle, Loader2, ChevronLeft, ChevronRight, RefreshCw, Bluetooth } from "lucide-react";
+import { ArrowLeft, Heart, Activity, Droplets, Thermometer, Save, Pill, AlertTriangle, Loader2, ChevronLeft, ChevronRight, RefreshCw, Bluetooth, Monitor } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,7 @@ function PatientPage() {
   const ctx = Route.useRouteContext();
   const { t } = useLang();
   const qc = useQueryClient();
+  const navigate = useNavigate();
 
   const profileQ = useQuery({
     queryKey: ["profile", ctx.user.id],
@@ -458,6 +459,20 @@ function PatientPage() {
             <p className="mt-1 text-xs text-muted-foreground">{patientQ.data.device_id ? t.connectedTo(patientQ.data.device_id) : t.noCabin}</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button 
+              size="lg" 
+              className="bg-sky-600 hover:bg-sky-700 text-white font-semibold shadow-sm"
+              onClick={() => navigate({ 
+                to: "/kiosk", 
+                search: { 
+                  patientId: id, 
+                  deviceId: patientQ.data?.device_id || undefined 
+                } 
+              })}
+            >
+              <Monitor className="mr-2 h-4 w-4" />
+              📱 Palata Ekrani (Kiosk)
+            </Button>
             <Button size="lg" onClick={logMed}><Pill className="mr-2 h-4 w-4" />{t.takeMedication}</Button>
             <Button variant="outline" size="lg" onClick={simulateEmpty}>{t.simulateNoLiquid}</Button>
             <Button variant="secondary" size="lg" onClick={addCheckup}>{t.logCheckupNow}</Button>
