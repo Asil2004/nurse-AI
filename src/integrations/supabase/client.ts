@@ -28,7 +28,7 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
 }
 
 
-const SUPABASE_URL = "https://ltfhkguyoumtugehkir.supabase.co";
+const SUPABASE_URL = "https://itfhkguyoumtuqehkijr.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_hM5Sqwj4mWZ3Dn-owh6eKg_O3bmrKOx";
 
 function createSupabaseClient() {
