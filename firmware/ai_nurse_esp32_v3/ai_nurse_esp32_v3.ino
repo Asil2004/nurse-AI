@@ -40,7 +40,7 @@
 #define API_HOST             "nurse-ai.onrender.com"
 #define API_PORT             443
 #define API_PATH             "/api/public/device/vitals"
-#define CLOUD_PERIOD_MS      2000
+#define CLOUD_PERIOD_MS      1000
 
 // ---- Pinlar ----
 #define PIN_BUZZER           33
@@ -236,7 +236,8 @@ bool cloudPostOnce() {
   http.addHeader("Content-Type", "application/json");
   http.addHeader("x-device-id", device_id);
   http.addHeader("x-device-token", pairing_token);
-  http.setTimeout(5000);
+  http.setTimeout(3000);
+  http.setReuse(true);
 
   Vitals v;
   if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(150)) == pdTRUE) {
@@ -301,8 +302,21 @@ void sensorTask(void *pv) {
   uint32_t redBuf[HR_BUFFER_LEN];
   int32_t  spo2, hr; int8_t spo2Ok, hrOk;
   bool fingerLast = false;
+  unsigned long lastMaxRetry = 0;
 
   for (;;) {
+    if (!maxSensorOk && millis() - lastMaxRetry > 4000) {
+      lastMaxRetry = millis();
+      if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        maxSensorOk = maxSensor.begin(Wire, I2C_SPEED_FAST);
+        if (maxSensorOk) {
+          maxSensor.setup(60, 4, 2, 100, 411, 4096);
+          Serial.println("[MAX30105] Ulanganligi aniqlandi va ishga tushdi!");
+        }
+        xSemaphoreGive(i2cMutex);
+      }
+    }
+
     if (maxSensorOk) {
       if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(200)) == pdTRUE) {
         bool finger = maxSensor.getIR() > 50000;
@@ -341,8 +355,18 @@ void sensorTask(void *pv) {
 }
 
 void envTask(void *pv) {
+  unsigned long lastAhtRetry = 0;
   for (;;) {
     // --- AHT10 ---
+    if (!ahtOk && millis() - lastAhtRetry > 4000) {
+      lastAhtRetry = millis();
+      if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        ahtOk = aht.begin(&Wire);
+        if (ahtOk) Serial.println("[AHT10] Ulanganligi aniqlandi va ishga tushdi!");
+        xSemaphoreGive(i2cMutex);
+      }
+    }
+
     if (ahtOk && xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(200)) == pdTRUE) {
       sensors_event_t t, h;
       aht.getEvent(&t, &h);

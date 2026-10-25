@@ -68,7 +68,7 @@ function MedicalKioskPage() {
         return data;
       }
     },
-    refetchInterval: 2000,
+    refetchInterval: 1000,
   });
 
   // Realtime yangilanish

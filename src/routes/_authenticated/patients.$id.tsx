@@ -51,6 +51,7 @@ function PatientPage() {
       if (error) throw error;
       return data;
     },
+    refetchInterval: 1500,
   });
 
   const checkupsQ = useQuery({
