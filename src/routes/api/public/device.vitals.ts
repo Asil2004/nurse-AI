@@ -8,6 +8,7 @@ const BodySchema = z.object({
   diastolic: z.number().optional(),
   air_temp: z.number().optional(),
   humidity: z.number().optional(),
+  water_temp: z.number().optional(),
   liquid_empty: z.boolean().optional(),
 });
 
@@ -63,6 +64,8 @@ export const Route = createFileRoute("/api/public/device/vitals")({
             bpPulse: prevVitals.bpPulse || (b.bpm || 0),
             airTemp: b.air_temp !== undefined ? b.air_temp : (prevVitals.airTemp || 0),
             humidity: b.humidity !== undefined ? b.humidity : (prevVitals.humidity || 0),
+            waterTemp: b.water_temp !== undefined ? b.water_temp : (prevVitals.waterTemp || 0),
+            liquidEmpty: b.liquid_empty !== undefined ? Boolean(b.liquid_empty) : (prevVitals.liquidEmpty || false),
             updatedAt: new Date().toISOString()
           };
 
@@ -107,7 +110,7 @@ export const Route = createFileRoute("/api/public/device/vitals")({
           antiseptic_duration_s: dev.antiseptic_duration_s ?? 15,
           heater_on_c: dev.heater_on_c ?? 22,
           heater_off_c: dev.heater_off_c ?? 24,
-          alerts_armed: Boolean((device as { alerts_armed?: boolean }).alerts_armed),
+          alerts_armed: (device as { alerts_armed?: boolean }).alerts_armed !== false,
         }), { status: 200, headers: cors });
       },
     },

@@ -249,6 +249,7 @@ bool cloudPostOnce() {
   if (v.spo2 > 0)      doc["spo2"]      = (int)v.spo2;
   if (v.airTemp != 0)  doc["air_temp"]  = v.airTemp;
   if (v.humidity != 0) doc["humidity"]  = v.humidity;
+  if (v.waterTemp > 0) doc["water_temp"] = v.waterTemp;
   doc["liquid_empty"] = v.liquidEmpty;
 
   String body;
@@ -364,9 +365,18 @@ void envTask(void *pv) {
     if (wt < heaterOnC)       digitalWrite(PIN_HEATER_RELAY, HIGH);
     else if (wt > heaterOffC) digitalWrite(PIN_HEATER_RELAY, LOW);
 
-    // --- Suyuqlik datchigi ---
-    bool present = (digitalRead(PIN_LIQUID) == LIQUID_PRESENT_LEVEL);
+    // --- Suyuqlik datchigi (XKC-Y28, PIN 25) ---
+    int rawLiquid = digitalRead(PIN_LIQUID);
+    bool present = (rawLiquid == LIQUID_PRESENT_LEVEL);
     bool empty = !present;
+
+    static int lastRaw = -1;
+    if (rawLiquid != lastRaw) {
+      lastRaw = rawLiquid;
+      Serial.printf("[LIQUID] Sensor PIN 25: %d -> Suyuqlik: %s\n", 
+                    rawLiquid, present ? "BOR (Normal)" : "TUGADI (Signal!)");
+    }
+
     if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
       vitals.liquidEmpty = empty;
       xSemaphoreGive(stateMutex);
@@ -374,7 +384,7 @@ void envTask(void *pv) {
 
     if (empty) {
       antisepticServo.write(SERVO_RUN_DEG);
-      if (alertsArmed) { beep(150); delay(120); beep(150); }
+      beep(150); delay(120); beep(150);
     } else {
       if (!antisepticRunning) antisepticServo.write(SERVO_IDLE_DEG);
     }

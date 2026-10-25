@@ -128,7 +128,7 @@ function PatientPage() {
       })
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "liquid_events", filter: `patient_id=eq.${id}` }, (payload) => {
         const row = payload.new as { id: string; empty_at: string; acknowledged_at: string | null };
-        if (!row.acknowledged_at && alertsArmedRef.current) setAlert({ ts: row.empty_at, id: row.id });
+        if (!row.acknowledged_at) setAlert({ ts: row.empty_at, id: row.id });
       })
       .subscribe();
     return () => { supabase.removeChannel(ch); };
@@ -312,10 +312,6 @@ function PatientPage() {
   const simulateEmpty = async () => {
     primeAudio();
     const nowIso = new Date().toISOString();
-    if (!alertsArmedRef.current) {
-      toast.info(t.takeMedication);
-      return;
-    }
     setAlert({ ts: nowIso, id: `local-${Date.now()}` });
     const { data } = await supabase
       .from("liquid_events")
