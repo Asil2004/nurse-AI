@@ -52,11 +52,28 @@ export const Route = createFileRoute("/api/public/device/vitals")({
           }
         }
         if (patientId) {
-          const current = { bpm: b.bpm ?? 0, spo2: b.spo2 ?? 0, systolic: b.systolic ?? 0, diastolic: b.diastolic ?? 0, airTemp: b.air_temp ?? 0, humidity: b.humidity ?? 0, updatedAt: new Date().toISOString() };
+          const { data: pData } = await supabaseAdmin.from("patients").select("current_vitals").eq("id", patientId).maybeSingle();
+          const prevVitals = (pData?.current_vitals as any) || {};
+
+          const current = {
+            bpm: (b.bpm && b.bpm > 0) ? b.bpm : (prevVitals.bpm || 0),
+            spo2: (b.spo2 && b.spo2 > 0) ? b.spo2 : (prevVitals.spo2 || 0),
+            systolic: (b.systolic && b.systolic > 0) ? b.systolic : (prevVitals.systolic || 0),
+            diastolic: (b.diastolic && b.diastolic > 0) ? b.diastolic : (prevVitals.diastolic || 0),
+            bpPulse: prevVitals.bpPulse || (b.bpm || 0),
+            airTemp: b.air_temp !== undefined ? b.air_temp : (prevVitals.airTemp || 0),
+            humidity: b.humidity !== undefined ? b.humidity : (prevVitals.humidity || 0),
+            updatedAt: new Date().toISOString()
+          };
+
           await supabaseAdmin.from("patients").update({ current_vitals: current }).eq("id", patientId);
+
+          // Faqat yangi ma'lumotlar bor bo'lsa vitals tarixiga yozish
           await supabaseAdmin.from("vitals").insert({
             patient_id: patientId, device_id: deviceId,
-            bpm: b.bpm ?? null, spo2: b.spo2 ?? null, systolic: b.systolic ?? null, diastolic: b.diastolic ?? null,
+            bpm: b.bpm ?? null, spo2: b.spo2 ?? null,
+            systolic: (b.systolic && b.systolic > 0) ? b.systolic : null,
+            diastolic: (b.diastolic && b.diastolic > 0) ? b.diastolic : null,
             air_temp: b.air_temp ?? null, humidity: b.humidity ?? null,
           });
           if (b.liquid_empty) {

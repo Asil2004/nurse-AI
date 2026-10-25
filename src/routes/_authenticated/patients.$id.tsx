@@ -196,10 +196,11 @@ function PatientPage() {
   };
 
   useEffect(() => {
-    if (!autoMode) return;
+    // Agar bemorga haqiqiy ESP32 qurilmasi ulangan bo'lsa, soxta simulyatsiyani to'xtatamiz!
+    if (!autoMode || deviceId) return;
     const t = setInterval(() => setVitals((v) => simulateVitals(v)), 3500);
     return () => clearInterval(t);
-  }, [autoMode]);
+  }, [autoMode, deviceId]);
 
   // Audio: primed on any user gesture so beeps play when alert arrives via realtime
   const audioRef = useRef<AudioContext | null>(null);
@@ -481,6 +482,7 @@ function PatientPage() {
           <VitalCard title={t.bloodPressure} icon={<Activity className="h-4 w-4" />} tone="violet" onRefresh={autoMode ? () => refreshBlock("bp") : undefined} refreshing={refreshingBlock === "bp"} refreshLabel={t.getNewData}>
             <VitalRow label={t.systolic} unit="mmHg" value={vitals.systolic} onChange={(v) => setVitals({ ...vitals, systolic: v })} readonly={autoMode} />
             <VitalRow label={t.diastolic} unit="mmHg" value={vitals.diastolic} onChange={(v) => setVitals({ ...vitals, diastolic: v })} readonly={autoMode} />
+            <VitalRow label="Puls / min" unit="zarba/daq" value={vitals.bpPulse || vitals.bpm || 0} onChange={(v) => setVitals({ ...vitals, bpPulse: v })} readonly={autoMode} />
             <Button 
               size="sm" 
               variant="secondary" 
@@ -489,7 +491,7 @@ function PatientPage() {
               disabled={bleConnecting}
             >
               {bleConnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bluetooth className="h-3.5 w-3.5" />}
-              {bleConnecting ? "Ulanmoqda..." : "Rossmax Z5 orqali o'lchash"}
+              {bleConnecting ? "Ulanmoqda..." : "Bluetooth orqali qon bosimini o'lchash"}
             </Button>
           </VitalCard>
           <VitalCard title={t.cabinEnv} icon={<Thermometer className="h-4 w-4" />} tone="teal" onRefresh={autoMode ? () => refreshBlock("env") : undefined} refreshing={refreshingBlock === "env"} refreshLabel={t.getNewData}>
@@ -621,12 +623,13 @@ function VitalCard({ title, icon, children, tone = "rose", onRefresh, refreshing
 }
 
 function VitalRow({ label, value, unit, onChange, readonly, step }: { label: string; value: number; unit: string; onChange: (v: number) => void; readonly?: boolean; step?: number }) {
+  const displayVal = (value && value > 0) ? value : "—";
   return (
     <div className="flex items-center justify-between gap-3 rounded-xl bg-white/70 px-3 py-2 backdrop-blur-sm">
       <span className="text-sm text-muted-foreground">{label}</span>
       <div className="flex items-center gap-2">
         {readonly ? (
-          <span className="font-display text-xl font-semibold">{value}<span className="ml-1 text-xs text-muted-foreground">{unit}</span></span>
+          <span className="font-display text-xl font-semibold">{displayVal}{displayVal !== "—" && <span className="ml-1 text-xs text-muted-foreground">{unit}</span>}</span>
         ) : (
           <div className="flex items-center gap-1">
             <Input type="number" step={step ?? 1} value={value} onChange={(e) => onChange(Number(e.target.value))} className="w-24 text-right" />
@@ -635,7 +638,6 @@ function VitalRow({ label, value, unit, onChange, readonly, step }: { label: str
         )}
       </div>
     </div>
-
   );
 }
 
