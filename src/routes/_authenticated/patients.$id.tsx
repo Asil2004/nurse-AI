@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Heart, Activity, Droplets, Thermometer, Save, Pill, AlertTriangle, Loader2, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { ArrowLeft, Heart, Activity, Droplets, Thermometer, Save, Pill, AlertTriangle, Loader2, ChevronLeft, ChevronRight, RefreshCw, Bluetooth } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -132,6 +132,68 @@ function PatientPage() {
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [id]);
+
+  const [bleConnecting, setBleConnecting] = useState(false);
+
+  const measureRossmaxDirect = async () => {
+    if (!("bluetooth" in navigator)) {
+      toast.error("Brauzeringiz Bluetooth'ni qo'llab-quvvatlamaydi (Google Chrome kerak)");
+      return;
+    }
+    setBleConnecting(true);
+    try {
+      toast.info("Rossmax Z5 tonometrini yoqing...");
+      const device = await (navigator as any).bluetooth.requestDevice({
+        filters: [
+          { namePrefix: "ROSSMAX" },
+          { namePrefix: "Rossmax" },
+          { services: ["blood_pressure"] }
+        ],
+        optionalServices: ["blood_pressure", 0x1810, 0xFFF0]
+      });
+
+      const server = await device.gatt.connect();
+      toast.success("Tonometr ulandi! O'lchov kutilmoqda...");
+
+      const service = await server.getPrimaryService("blood_pressure").catch(async () => {
+        return await server.getPrimaryService(0x1810);
+      });
+      const char = await service.getCharacteristic("blood_pressure_measurement").catch(async () => {
+        return await service.getCharacteristic(0x2A35);
+      });
+
+      await char.startNotifications();
+      char.addEventListener("characteristicvaluechanged", async (event: any) => {
+        const val = event.target.value;
+        const flags = val.getUint8(0);
+        const sys = Math.round(val.getUint16(1, true));
+        const dia = Math.round(val.getUint16(3, true));
+        const pul = val.byteLength >= 16 ? Math.round(val.getUint16(14, true)) : 0;
+
+        setVitals((v) => ({ ...v, systolic: sys, diastolic: dia, ...(pul > 0 ? { bpm: pul } : {}) }));
+        toast.success(`Qon bosimi aniqlandi: ${sys}/${dia} mmHg`);
+
+        await supabase.from("patients").update({
+          current_vitals: { ...vitals, systolic: sys, diastolic: dia, ...(pul > 0 ? { bpm: pul } : {}), updatedAt: new Date().toISOString() }
+        }).eq("id", id);
+
+        await supabase.from("vitals").insert({
+          patient_id: id,
+          device_id: deviceId,
+          systolic: sys,
+          diastolic: dia,
+          bpm: pul || null
+        });
+        qc.invalidateQueries({ queryKey: ["patient", id] });
+      });
+    } catch (err: any) {
+      if (err.name !== "NotFoundError") {
+        toast.error("Bluetooth xatosi: " + err.message);
+      }
+    } finally {
+      setBleConnecting(false);
+    }
+  };
 
   useEffect(() => {
     if (!autoMode) return;
@@ -419,12 +481,16 @@ function PatientPage() {
           <VitalCard title={t.bloodPressure} icon={<Activity className="h-4 w-4" />} tone="violet" onRefresh={autoMode ? () => refreshBlock("bp") : undefined} refreshing={refreshingBlock === "bp"} refreshLabel={t.getNewData}>
             <VitalRow label={t.systolic} unit="mmHg" value={vitals.systolic} onChange={(v) => setVitals({ ...vitals, systolic: v })} readonly={autoMode} />
             <VitalRow label={t.diastolic} unit="mmHg" value={vitals.diastolic} onChange={(v) => setVitals({ ...vitals, diastolic: v })} readonly={autoMode} />
-            {autoMode && patientQ.data?.device_id && (
-              <Button size="sm" variant="secondary" className="mt-2 w-full rounded-full" onClick={requestBpMeasurementClick} disabled={requestingBp}>
-                {requestingBp ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Activity className="mr-1.5 h-3.5 w-3.5" />}
-                {t.measureBpNow}
-              </Button>
-            )}
+            <Button 
+              size="sm" 
+              variant="secondary" 
+              className="mt-2 w-full rounded-full gap-1.5 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:bg-violet-950/40 dark:text-violet-300" 
+              onClick={measureRossmaxDirect} 
+              disabled={bleConnecting}
+            >
+              {bleConnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bluetooth className="h-3.5 w-3.5" />}
+              {bleConnecting ? "Ulanmoqda..." : "Rossmax Z5 orqali o'lchash"}
+            </Button>
           </VitalCard>
           <VitalCard title={t.cabinEnv} icon={<Thermometer className="h-4 w-4" />} tone="teal" onRefresh={autoMode ? () => refreshBlock("env") : undefined} refreshing={refreshingBlock === "env"} refreshLabel={t.getNewData}>
             <VitalRow label={t.airTemp} unit="°C" value={vitals.airTemp} onChange={(v) => setVitals({ ...vitals, airTemp: v })} readonly={autoMode} step={0.1} />
