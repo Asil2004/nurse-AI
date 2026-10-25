@@ -1,6 +1,6 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { Plus, Trash2, Pencil, User as UserIcon, Loader2, Cpu, RefreshCw, Copy, BarChart3, Users } from "lucide-react";
+import { Plus, Trash2, Pencil, User as UserIcon, Loader2, Cpu, RefreshCw, Copy, BarChart3, Users, Usb, Monitor } from "lucide-react";
 import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -288,6 +288,12 @@ function DevicesTab() {
   const [form, setForm] = useState({ device_id: "", label: "" });
   const [lastToken, setLastToken] = useState<{ id: string; token: string } | null>(null);
 
+  // USB Web Serial Dialog state
+  const [usbOpen, setUsbOpen] = useState(false);
+  const [usbForm, setUsbForm] = useState({ deviceId: "", token: "", ssid: "", pass: "" });
+  const [usbStatus, setUsbStatus] = useState("");
+  const [usbLoading, setUsbLoading] = useState(false);
+
   const devicesQ = useQuery({
     queryKey: ["admin-devices"],
     queryFn: async () => {
@@ -299,16 +305,39 @@ function DevicesTab() {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const endpoint = `${origin}/api/public/device/vitals`;
 
+  const handleFlash = async () => {
+    setUsbLoading(true);
+    setUsbStatus("Ulanmoqda...");
+    try {
+      const { flashConfigToEsp32 } = await import("@/lib/web-serial");
+      await flashConfigToEsp32({
+        deviceId: usbForm.deviceId,
+        token: usbForm.token,
+        ssid: usbForm.ssid,
+        pass: usbForm.pass
+      }, (msg) => setUsbStatus(msg));
+      toast.success("ESP32 muvaffaqiyatli sozlandi!");
+      setUsbOpen(false);
+    } catch (e: any) {
+      toast.error(e.message || "USB orqali yozishda xatolik");
+      setUsbStatus("Xatolik: " + e.message);
+    } finally {
+      setUsbLoading(false);
+    }
+  };
+
   return (
     <div className="mt-4 space-y-6">
-      <div className="rounded-2xl border border-border/60 bg-muted/30 p-5">
-        <h2 className="font-semibold">Connect an ESP32 to AI Nurse</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Register a cabin device below. Copy the device ID and pairing token into your ESP32 firmware; it will post vitals over Wi-Fi to the endpoint.</p>
-        <div className="mt-3 rounded-lg bg-background p-3 font-mono text-xs">
-          <div><span className="text-muted-foreground">POST</span> {endpoint}</div>
-          <div className="mt-1 text-muted-foreground">Headers: X-Device-Id, X-Device-Token</div>
-          <div className="mt-1 text-muted-foreground">Body: {"{ bpm, spo2, systolic, diastolic, air_temp, humidity, liquid_empty?: boolean }"}</div>
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-border/60 bg-muted/30 p-5">
+        <div>
+          <h2 className="font-semibold text-base">Connect an ESP32 to AI Nurse</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Qurilmalarni Wi-Fi va Token bilan USB kabel orqali to'g'ridan-to'g'ri shu yerdan sozlang.</p>
         </div>
+        <Link to="/kiosk" target="_blank">
+          <Button variant="default" className="gap-2 bg-blue-600 hover:bg-blue-500">
+            <Monitor className="h-4 w-4" /> Planshet Monitorini Ochish (Kiosk)
+          </Button>
+        </Link>
       </div>
 
       <div className="flex justify-end">
@@ -321,6 +350,12 @@ function DevicesTab() {
           <div className="mt-1 flex items-center gap-2 font-mono text-xs">
             <code className="rounded bg-background px-2 py-1">{lastToken.token}</code>
             <Button size="sm" variant="ghost" onClick={() => { navigator.clipboard.writeText(lastToken.token); toast.success("Copied"); }}><Copy className="h-4 w-4" /></Button>
+            <Button size="sm" variant="secondary" className="gap-1.5" onClick={() => {
+              setUsbForm({ deviceId: lastToken.id, token: lastToken.token, ssid: "", pass: "" });
+              setUsbOpen(true);
+            }}>
+              <Usb className="h-3.5 w-3.5 text-blue-500" /> USB orqali sozlash
+            </Button>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">Save this token — it won't be shown again.</p>
         </div>
@@ -328,25 +363,86 @@ function DevicesTab() {
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {(devicesQ.data ?? []).map((d) => (
-          <div key={d.device_id} className="card-elevated rounded-2xl p-4">
-            <div className="flex items-center gap-2">
-              <Cpu className="h-4 w-4 text-medical" />
-              <div className="font-semibold">{d.device_id}</div>
+          <div key={d.device_id} className="card-elevated rounded-2xl p-4 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Cpu className="h-4 w-4 text-medical" />
+                  <div className="font-semibold">{d.device_id}</div>
+                </div>
+                <Link to="/kiosk">
+                  <Button size="sm" variant="ghost" className="h-7 text-xs text-blue-500">
+                    <Monitor className="h-3.5 w-3.5 mr-1" /> Kiosk
+                  </Button>
+                </Link>
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">{d.label || "—"}</div>
+              <div className="mt-2 text-xs text-muted-foreground">Last seen: {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "never"}</div>
             </div>
-            <div className="mt-1 text-xs text-muted-foreground">{d.label || "—"}</div>
-            <div className="mt-2 text-xs text-muted-foreground">Last seen: {d.last_seen_at ? new Date(d.last_seen_at).toLocaleString() : "never"}</div>
-            <Button size="sm" variant="secondary" className="mt-3 w-full" onClick={async () => {
-              const r = await rotateFn({ data: { device_id: d.device_id } });
-              setLastToken({ id: d.device_id, token: r.pairing_token });
-              qc.invalidateQueries({ queryKey: ["admin-devices"] });
-              toast.success("Token rotated");
-            }}><RefreshCw className="mr-1.5 h-3.5 w-3.5" />Rotate token</Button>
+
+            <div className="mt-4 flex flex-col gap-2">
+              <Button size="sm" variant="outline" className="w-full gap-1.5 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10" onClick={() => {
+                setUsbForm({ deviceId: d.device_id, token: "", ssid: "", pass: "" });
+                setUsbOpen(true);
+              }}>
+                <Usb className="h-3.5 w-3.5" /> 🔌 USB orqali Wi-Fi sozlash
+              </Button>
+              <Button size="sm" variant="ghost" className="w-full text-xs" onClick={async () => {
+                const r = await rotateFn({ data: { device_id: d.device_id } });
+                setLastToken({ id: d.device_id, token: r.pairing_token });
+                qc.invalidateQueries({ queryKey: ["admin-devices"] });
+                toast.success("Token rotated");
+              }}><RefreshCw className="mr-1.5 h-3 w-3" />Rotate token</Button>
+            </div>
           </div>
         ))}
         {(devicesQ.data?.length ?? 0) === 0 && (
           <div className="col-span-full rounded-2xl border border-dashed py-12 text-center text-sm text-muted-foreground">No devices yet.</div>
         )}
       </div>
+
+      {/* USB Web Serial Dialog */}
+      <Dialog open={usbOpen} onOpenChange={setUsbOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Usb className="h-5 w-5 text-blue-500" /> ESP32 Qurilmasini USB orqali sozlash
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              ESP32 ni planshet/noutbukka USB kabel bilan ulang va Wi-Fi ma'lumotlarini kiriting:
+            </p>
+            <div className="space-y-1.5">
+              <Label>Device ID</Label>
+              <Input value={usbForm.deviceId} readOnly className="bg-muted font-mono" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Pairing Token</Label>
+              <Input value={usbForm.token} onChange={(e) => setUsbForm({ ...usbForm, token: e.target.value })} placeholder="Token..." className="font-mono text-xs" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Wi-Fi Nomi (SSID) *</Label>
+              <Input value={usbForm.ssid} onChange={(e) => setUsbForm({ ...usbForm, ssid: e.target.value })} placeholder="Wi-Fi nomini kiriting" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Wi-Fi Paroli *</Label>
+              <Input type="password" value={usbForm.pass} onChange={(e) => setUsbForm({ ...usbForm, pass: e.target.value })} placeholder="Wi-Fi paroli" />
+            </div>
+            {usbStatus && (
+              <div className="rounded-lg bg-blue-500/10 border border-blue-500/30 p-2 text-xs text-blue-400 font-medium">
+                {usbStatus}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setUsbOpen(false)}>Bekor qilish</Button>
+            <Button onClick={handleFlash} disabled={usbLoading || !usbForm.ssid} className="bg-blue-600 hover:bg-blue-500">
+              {usbLoading ? "Yozilmoqda..." : "🔌 ESP32 ga Yozish"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
