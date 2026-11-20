@@ -47,23 +47,13 @@ function AuthPage() {
         toast.success("Account created");
       } else {
         const identifierTrim = identifier.trim();
-        try {
-          if (identifierTrim.includes("@")) {
-            const { error } = await supabase.auth.signInWithPassword({ email: identifierTrim, password });
-            if (error) throw error;
-          } else {
-            throw new Error("Use login helper");
-          }
-        } catch {
-          // Server-side xavfsiz autentifikatsiya (yangi sb_publishable API kalitlari bilan 100% ishlaydi)
-          const { signInWithLogin } = await import("@/lib/auth.functions");
-          const tokens = await signInWithLogin({ data: { login: identifierTrim, password } });
-          const { error } = await supabase.auth.setSession({
-            access_token: tokens.access_token,
-            refresh_token: tokens.refresh_token,
-          });
-          if (error) throw error;
-        }
+        const { signInWithLogin } = await import("@/lib/auth.functions");
+        const tokens = await signInWithLogin({ data: { login: identifierTrim, password } });
+        const { error: sessErr } = await supabase.auth.setSession({
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token,
+        });
+        if (sessErr) throw sessErr;
       }
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
