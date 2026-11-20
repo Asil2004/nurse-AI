@@ -237,6 +237,7 @@ CREATE TABLE IF NOT EXISTS public.devices (
   bp_measure_requested boolean NOT NULL DEFAULT false,
   antiseptic_start_requested boolean NOT NULL DEFAULT false,
   antiseptic_duration_s integer NOT NULL DEFAULT 15,
+  heater_manual_on boolean NOT NULL DEFAULT false,
   heater_on_c numeric NOT NULL DEFAULT 22,
   heater_off_c numeric NOT NULL DEFAULT 24,
   alerts_armed boolean NOT NULL DEFAULT false,

@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
-import { startAntisepticNow } from "@/lib/devices-bp.functions";
+import { startAntisepticNow, toggleHeaterNow } from "@/lib/devices-bp.functions";
 import { 
   Heart, 
   Wind, 
@@ -19,7 +19,9 @@ import {
   Minimize,
   ArrowLeft,
   ShieldCheck,
-  CheckCircle2
+  CheckCircle2,
+  Flame,
+  Loader2
 } from "lucide-react";
 
 type KioskSearchParams = {
@@ -92,6 +94,23 @@ function MedicalKioskPage() {
   const vitals = (currentPatient?.current_vitals as any) || {};
 
   const startAntisepticFn = useServerFn(startAntisepticNow);
+  const toggleHeaterFn = useServerFn(toggleHeaterNow);
+  const [heaterLoading, setHeaterLoading] = useState(false);
+  const isHeaterOn = Boolean(vitals.heaterManualOn);
+
+  // Isitgichni yoqish / o'chirish (Sayt tugmasi orqali)
+  const handleToggleHeater = async () => {
+    setHeaterLoading(true);
+    try {
+      const res = await toggleHeaterFn({ data: { deviceId: selectedDevice } });
+      refetch();
+      toast.success(res.heaterOn ? "🔥 Suvni qizdirish yoqildi! (MOSFET 18)" : "Suvni qizdirish to'xtatildi.");
+    } catch (e: any) {
+      toast.error(e.message || "Xatolik yuz berdi");
+    } finally {
+      setTimeout(() => setHeaterLoading(false), 800);
+    }
+  };
 
   // Antiseptikni yoqish
   const handleStartAntiseptic = async () => {
@@ -391,10 +410,24 @@ function MedicalKioskPage() {
             <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700">NTC 10K</span>
           </div>
 
-          <div className="my-5 flex items-baseline gap-2">
+          <div className="my-5 flex items-baseline justify-between gap-2">
             <span className="text-5xl sm:text-6xl font-extrabold text-slate-900 font-mono tracking-tight">
               {vitals.waterTemp ? `${vitals.waterTemp.toFixed(1)}°C` : "--"}
             </span>
+            <Button
+              size="sm"
+              variant={isHeaterOn ? "default" : "outline"}
+              onClick={handleToggleHeater}
+              disabled={heaterLoading}
+              className={`rounded-xl gap-1.5 font-bold ${
+                isHeaterOn 
+                  ? "bg-amber-600 hover:bg-amber-700 text-white animate-pulse" 
+                  : "text-amber-700 border-amber-300 hover:bg-amber-50"
+              }`}
+            >
+              {heaterLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Flame className="h-3.5 w-3.5" />}
+              {isHeaterOn ? "Isitilmoqda (ON)" : "Qizdirish"}
+            </Button>
           </div>
 
           <div className="flex items-center gap-2 text-xs text-slate-500 border-t border-slate-100 pt-3">
@@ -442,6 +475,21 @@ function MedicalKioskPage() {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Suvni Qizdirish Tugmasi (MOSFET 18) */}
+          <Button
+            size="lg"
+            onClick={handleToggleHeater}
+            disabled={heaterLoading}
+            className={`font-bold px-7 py-6 rounded-2xl shadow-sm hover:shadow-md transition-all text-base gap-2 ${
+              isHeaterOn
+                ? "bg-amber-600 hover:bg-amber-700 text-white animate-pulse"
+                : "bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300"
+            }`}
+          >
+            {heaterLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Flame className="h-5 w-5" />}
+            {isHeaterOn ? "🔥 Qizdirish YOQIQ (O'chirish)" : "🔥 Suvni Qizdirish"}
+          </Button>
+
           {/* Antiseptik Tugmasi */}
           <Button
             size="lg"

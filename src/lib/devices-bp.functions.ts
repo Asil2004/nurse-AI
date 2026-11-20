@@ -53,6 +53,52 @@ export const startAntisepticNow = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const toggleHeaterNow = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) => z.object({ deviceId: z.string().min(1), enable: z.boolean().optional() }).parse(data))
+  .handler(async ({ data, context }) => {
+    await assertAllowed(context.supabase as never, context.userId, data.deviceId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // 1. Ushbu qurilma biriktirilgan bemorni aniqlash
+    const { data: dev } = await supabaseAdmin
+      .from("devices")
+      .select("assigned_patient_id")
+      .eq("device_id", data.deviceId)
+      .maybeSingle();
+
+    let targetPatientId = dev?.assigned_patient_id;
+    if (!targetPatientId) {
+      const { data: p } = await supabaseAdmin.from("patients").select("id").eq("device_id", data.deviceId).maybeSingle();
+      targetPatientId = p?.id;
+    }
+
+    let nextState = data.enable;
+    if (targetPatientId) {
+      const { data: pData } = await supabaseAdmin.from("patients").select("current_vitals").eq("id", targetPatientId).maybeSingle();
+      const vitals = (pData?.current_vitals as any) || {};
+      if (nextState === undefined) {
+        nextState = !Boolean(vitals.heaterManualOn);
+      }
+      await supabaseAdmin.from("patients").update({
+        current_vitals: {
+          ...vitals,
+          heaterManualOn: nextState,
+          updatedAt: new Date().toISOString()
+        }
+      }).eq("id", targetPatientId);
+    }
+
+    // Devices jadvalida ham saqlab qo'yish (agar ustun mavjud bo'lsa)
+    try {
+      await supabaseAdmin.from("devices").update({ heater_manual_on: nextState } as any).eq("device_id", data.deviceId);
+    } catch {
+      // ustun bo'lmasa xato bermaydi
+    }
+
+    return { ok: true, heaterOn: nextState };
+  });
+
 export const updateDeviceSettings = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data) => z.object({

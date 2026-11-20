@@ -63,11 +63,14 @@
 #define SERVO_IDLE_DEG       0
 #define SERVO_RUN_DEG        90
 
-// ========================= RELYE MODULI SOZLAMALARI =========================
-// Diqqat: Bozordagi 95% Arduino/ESP32 optoli relye modullari "ACTIVE-LOW" bo'ladi (LOW berilsa ulanadi).
-// Agar sizning modulingiz teskari (HIGH berilganda) ulansa, RELAY_ON ni HIGH, RELAY_OFF ni LOW qilasiz.
-#define RELAY_ON             LOW    // Relyeni yoqish sathi
-#define RELAY_OFF            HIGH   // Relyeni o'chirish sathi
+// ========================= KALIT (MOSFET / RELYE) BOSHQARUVI =========================
+// IRFZ44N / IRF44Z N-kanal tranzistor (MOSFET):
+// Gate = HIGH (3.3V) berilganda ochiladi va tok o'tkazadi (YOQILADI).
+// Gate = LOW (0V) berilganda kanal yopiladi (O'CHIRILADI).
+#define SWITCH_ON            HIGH   // MOSFET uchun HIGH (1)
+#define SWITCH_OFF           LOW    // MOSFET uchun LOW (0)
+#define RELAY_ON             SWITCH_ON
+#define RELAY_OFF            SWITCH_OFF
 
 // ========================= GLOBAL HOZIRGI HOLAT =========================
 Preferences preferences;
@@ -98,6 +101,7 @@ volatile bool  antisepticRunning   = false;
 volatile int   antisepticDurationS = 15;
 volatile float heaterOnC           = 22.0f;
 volatile float heaterOffC          = 24.0f;
+volatile bool  heaterManualOn      = false; // Saytdagi tugma orqali qizdirish
 volatile bool  wifiReady           = false;
 
 TaskHandle_t   cloudTaskHandle     = NULL;
@@ -127,18 +131,18 @@ void startAntiseptic(int durationS) {
   if (durationS < 1) durationS = 1;
   if (durationS > 600) durationS = 600;
   antisepticDurationS = durationS;
-  digitalWrite(PIN_ANTISEPTIC, RELAY_ON);
+  digitalWrite(PIN_ANTISEPTIC, SWITCH_ON);
   antisepticServo.write(SERVO_RUN_DEG);
   antisepticRunning = true;
   antisepticStartedMs = millis();
-  Serial.printf("[ANTISEPTIK] Ishga tushdi: %d s (PIN 19 yoqildi)\n", durationS);
+  Serial.printf("[ANTISEPTIK] Ishga tushdi: %d s (MOSFET 19: HIGH)\n", durationS);
 }
 
 void stopAntiseptic() {
-  digitalWrite(PIN_ANTISEPTIC, RELAY_OFF);
+  digitalWrite(PIN_ANTISEPTIC, SWITCH_OFF);
   antisepticServo.write(SERVO_IDLE_DEG);
   antisepticRunning = false;
-  Serial.println("[ANTISEPTIK] To'xtatildi (PIN 19 o'chirildi)");
+  Serial.println("[ANTISEPTIK] To'xtatildi (MOSFET 19: LOW)");
 }
 
 void updateAntiseptic() {
@@ -200,16 +204,20 @@ void handleSerialCommands() {
           String out;
           serializeJson(resp, out);
           Serial.println(out);
-        } else if (cmd == "test_relays") {
-          Serial.println("{\"status\":\"ok\",\"message\":\"Relye 18 va 19 sinovi boshlandi...\"}");
-          digitalWrite(PIN_HEATER_RELAY, RELAY_ON);
+        } else if (cmd == "test_relays" || cmd == "test_mosfet") {
+          Serial.println("{\"status\":\"ok\",\"message\":\"MOSFET 18 va 19 sinovi boshlandi...\"}");
+          digitalWrite(PIN_HEATER_RELAY, SWITCH_ON);
           delay(500);
-          digitalWrite(PIN_HEATER_RELAY, RELAY_OFF);
+          digitalWrite(PIN_HEATER_RELAY, SWITCH_OFF);
           delay(200);
-          digitalWrite(PIN_ANTISEPTIC, RELAY_ON);
+          digitalWrite(PIN_ANTISEPTIC, SWITCH_ON);
           delay(500);
-          digitalWrite(PIN_ANTISEPTIC, RELAY_OFF);
-          Serial.println("{\"status\":\"ok\",\"message\":\"Relye sinovi muvaffaqiyatli!\"}");
+          digitalWrite(PIN_ANTISEPTIC, SWITCH_OFF);
+          Serial.println("{\"status\":\"ok\",\"message\":\"MOSFET sinovi muvaffaqiyatli!\"}");
+        } else if (cmd == "toggle_heater") {
+          heaterManualOn = !heaterManualOn;
+          digitalWrite(PIN_HEATER_RELAY, heaterManualOn ? SWITCH_ON : SWITCH_OFF);
+          Serial.printf("{\"status\":\"ok\",\"heater_manual_on\":%s}\n", heaterManualOn ? "true" : "false");
         }
       }
     }
@@ -286,9 +294,10 @@ bool cloudPostOnce() {
       }
       if (rdoc.containsKey("antiseptic_duration_s") && !antisepticRunning)
         antisepticDurationS = rdoc["antiseptic_duration_s"] | (int)antisepticDurationS;
-      if (rdoc.containsKey("heater_on_c"))  heaterOnC  = rdoc["heater_on_c"]  | (float)heaterOnC;
-      if (rdoc.containsKey("heater_off_c")) heaterOffC = rdoc["heater_off_c"] | (float)heaterOffC;
-      if (rdoc.containsKey("alerts_armed")) alertsArmed = rdoc["alerts_armed"].as<bool>();
+      if (rdoc.containsKey("heater_on_c"))     heaterOnC  = rdoc["heater_on_c"]  | (float)heaterOnC;
+      if (rdoc.containsKey("heater_off_c"))    heaterOffC = rdoc["heater_off_c"] | (float)heaterOffC;
+      if (rdoc.containsKey("heater_manual_on")) heaterManualOn = rdoc["heater_manual_on"].as<bool>();
+      if (rdoc.containsKey("alerts_armed"))    alertsArmed = rdoc["alerts_armed"].as<bool>();
     }
   } else {
     Serial.printf("[CLOUD] POST xatosi: %d\n", code);
@@ -402,23 +411,33 @@ void envTask(void *pv) {
       xSemaphoreGive(stateMutex);
     }
 
-    // --- Isitgich Relyesi (PIN 18) ---
-    static bool heaterState = false;
-    static unsigned long lastHeaterCheck = 0;
-    if (millis() - lastHeaterCheck > 4000) {
-      lastHeaterCheck = millis();
-      Serial.printf("[NTC / ISITGICH] Suv harorati: %.1f C | Chegara: %.1f - %.1f C | Relye 18: %s\n",
-                    wt, heaterOnC, heaterOffC, heaterState ? "YOQIQ (ON)" : "O'CHIQ (OFF)");
+    // --- Isitgich boshqaruvi (IRFZ44N MOSFET, PIN 18) ---
+    // 1) Saytdagi "Suvni qizdirish" tugmasi orqali (heaterManualOn == true)
+    // 2) YOKI avtomatik termostat orqali (suv harorati belgilangan chegaradan past bo'lsa)
+    bool shouldHeat = heaterManualOn || (wt > 0.0f && wt < heaterOnC);
+
+    // Xavfsizlik: agar suv harorati 45°C ga yetsa, kuyishning oldini olish uchun qizdirish to'xtatiladi
+    if (wt >= 45.0f) {
+      shouldHeat = false;
     }
 
-    if (wt < heaterOnC && !heaterState) {
+    static bool heaterState = false;
+    static unsigned long lastHeaterCheck = 0;
+    if (millis() - lastHeaterCheck > 3000) {
+      lastHeaterCheck = millis();
+      Serial.printf("[MOSFET 18 / ISITGICH] Suv: %.1f C | Sayt tugmasi: %s | Holat: %s\n",
+                    wt, heaterManualOn ? "YOQILGAN" : "O'CHIQ", heaterState ? "QIZDIRILMOQDA (HIGH)" : "O'CHIQ (LOW)");
+    }
+
+    if (shouldHeat && !heaterState) {
       heaterState = true;
-      digitalWrite(PIN_HEATER_RELAY, RELAY_ON);
-      Serial.printf("[ISITGICH] YOQILDI (Suv: %.1f C < %.1f C, PIN 18 -> %s)\n", wt, heaterOnC, RELAY_ON == LOW ? "LOW" : "HIGH");
-    } else if (wt > heaterOffC && heaterState) {
+      digitalWrite(PIN_HEATER_RELAY, SWITCH_ON);
+      Serial.printf("[MOSFET 18] ISITGICH YOQILDI (Manba: %s, PIN 18 -> HIGH)\n", 
+                    heaterManualOn ? "SAYT TUGMASI" : "AVTO-TERMOSTAT");
+    } else if (!shouldHeat && heaterState) {
       heaterState = false;
-      digitalWrite(PIN_HEATER_RELAY, RELAY_OFF);
-      Serial.printf("[ISITGICH] O'CHIRILDI (Suv: %.1f C > %.1f C, PIN 18 -> %s)\n", wt, heaterOffC, RELAY_OFF == LOW ? "LOW" : "HIGH");
+      digitalWrite(PIN_HEATER_RELAY, SWITCH_OFF);
+      Serial.println("[MOSFET 18] ISITGICH O'CHIRILDI (PIN 18 -> LOW)");
     }
 
     // --- Suyuqlik datchigi (XKC-Y28, PIN 25) ---
@@ -456,20 +475,20 @@ void setup() {
   Serial.println("\n--- AI NURSE CABIN FIRMWARE (v4) ---");
 
   pinMode(PIN_BUZZER, OUTPUT);       digitalWrite(PIN_BUZZER, LOW);
-  pinMode(PIN_HEATER_RELAY, OUTPUT); digitalWrite(PIN_HEATER_RELAY, RELAY_OFF);
-  pinMode(PIN_ANTISEPTIC, OUTPUT);   digitalWrite(PIN_ANTISEPTIC, RELAY_OFF);
+  pinMode(PIN_HEATER_RELAY, OUTPUT); digitalWrite(PIN_HEATER_RELAY, SWITCH_OFF);
+  pinMode(PIN_ANTISEPTIC, OUTPUT);   digitalWrite(PIN_ANTISEPTIC, SWITCH_OFF);
   pinMode(PIN_LIQUID, INPUT_PULLUP);
 
-  // Relyelarni ishga tushganda 350ms sinash (chertishini tekshirish uchun)
-  Serial.println("[RELAY] Test: Relye 18 va 19 tekshirilmoqda...");
-  digitalWrite(PIN_HEATER_RELAY, RELAY_ON);
-  delay(350);
-  digitalWrite(PIN_HEATER_RELAY, RELAY_OFF);
-  delay(150);
-  digitalWrite(PIN_ANTISEPTIC, RELAY_ON);
-  delay(350);
-  digitalWrite(PIN_ANTISEPTIC, RELAY_OFF);
-  Serial.println("[RELAY] Test yakunlandi (Ikkala relye ham chertib o'chdi).\n");
+  // MOSFET (IRFZ44N) ishga tushish testi
+  Serial.println("[MOSFET TEST] PIN 18 va 19 sinovi boshlandi...");
+  digitalWrite(PIN_HEATER_RELAY, SWITCH_ON);
+  delay(250);
+  digitalWrite(PIN_HEATER_RELAY, SWITCH_OFF);
+  delay(100);
+  digitalWrite(PIN_ANTISEPTIC, SWITCH_ON);
+  delay(250);
+  digitalWrite(PIN_ANTISEPTIC, SWITCH_OFF);
+  Serial.println("[MOSFET TEST] Tugadi (MOSFETlar dastlabki holatda O'CHIQ).\n");
 
   Wire.begin(PIN_SDA, PIN_SCL);
   Wire.setClock(400000);

@@ -66,6 +66,7 @@ export const Route = createFileRoute("/api/public/device/vitals")({
             humidity: b.humidity !== undefined ? b.humidity : (prevVitals.humidity || 0),
             waterTemp: b.water_temp !== undefined ? b.water_temp : (prevVitals.waterTemp || 0),
             liquidEmpty: b.liquid_empty !== undefined ? Boolean(b.liquid_empty) : (prevVitals.liquidEmpty || false),
+            heaterManualOn: Boolean(prevVitals.heaterManualOn),
             updatedAt: new Date().toISOString()
           };
 
@@ -103,10 +104,16 @@ export const Route = createFileRoute("/api/public/device/vitals")({
           });
         }
 
+        const heaterManual = Boolean(
+          (patientId && (await supabaseAdmin.from("patients").select("current_vitals").eq("id", patientId).maybeSingle()).data?.current_vitals?.heaterManualOn) ||
+          (device as any).heater_manual_on
+        );
+
         return new Response(JSON.stringify({
           ok: true,
           measure_bp: measureBp,
           start_antiseptic: startAntiseptic,
+          heater_manual_on: heaterManual,
           antiseptic_duration_s: dev.antiseptic_duration_s ?? 15,
           heater_on_c: dev.heater_on_c ?? 22,
           heater_off_c: dev.heater_off_c ?? 24,

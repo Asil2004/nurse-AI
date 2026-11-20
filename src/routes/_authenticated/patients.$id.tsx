@@ -12,7 +12,7 @@ import { useLang } from "@/lib/i18n";
 import { simulateVitals, type Vitals, defaultVitals } from "@/lib/types";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
-import { requestBpMeasurement, startAntisepticNow, updateDeviceSettings, setDeviceAlertsArmed } from "@/lib/devices-bp.functions";
+import { requestBpMeasurement, startAntisepticNow, updateDeviceSettings, setDeviceAlertsArmed, toggleHeaterNow } from "@/lib/devices-bp.functions";
 import { SprayCan, Flame } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/patients/$id")({
@@ -410,6 +410,25 @@ function PatientPage() {
     }
   };
 
+  const toggleHeaterFn = useServerFn(toggleHeaterNow);
+  const [togglingHeater, setTogglingHeater] = useState(false);
+  const isHeaterOn = Boolean(vitals.heaterManualOn);
+
+  const handleToggleHeater = async () => {
+    if (!deviceId) { toast.error(t.noCabin); return; }
+    setTogglingHeater(true);
+    try {
+      const res = await toggleHeaterFn({ data: { deviceId } });
+      setVitals((v) => ({ ...v, heaterManualOn: res.heaterOn }));
+      qc.invalidateQueries({ queryKey: ["patient", id] });
+      toast.success(res.heaterOn ? "Suvni qizdirish yoqildi! (MOSFET 18 faol)" : "Suvni qizdirish o'chirildi (MOSFET 18 o'chiq)");
+    } catch (e: any) {
+      toast.error(e?.message || "Xatolik yuz berdi");
+    } finally {
+      setTogglingHeater(false);
+    }
+  };
+
 
 
   const lastMed = medsQ.data?.[0]?.taken_at;
@@ -592,10 +611,29 @@ function PatientPage() {
                     </div>
                   </div>
                 </div>
-                <Button size="sm" variant="secondary" className="mt-3 rounded-full" onClick={saveCabinSettings} disabled={savingSettings}>
-                  {savingSettings ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
-                  {t.saveSettings}
-                </Button>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    className={`rounded-full gap-1.5 font-semibold transition-all ${
+                      isHeaterOn
+                        ? "bg-orange-600 hover:bg-orange-700 text-white animate-pulse"
+                        : "bg-orange-100 hover:bg-orange-200 text-orange-900 border border-orange-300"
+                    }`}
+                    onClick={handleToggleHeater}
+                    disabled={togglingHeater}
+                  >
+                    {togglingHeater ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Flame className="h-3.5 w-3.5" />
+                    )}
+                    {isHeaterOn ? "🔥 Qizdirish YOQIQ (O'chirish)" : "🔥 Suvni Qizdirishni Yoqish"}
+                  </Button>
+                  <Button size="sm" variant="secondary" className="rounded-full" onClick={saveCabinSettings} disabled={savingSettings}>
+                    {savingSettings ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
+                    {t.saveSettings}
+                  </Button>
+                </div>
               </div>
             </div>
           </div>

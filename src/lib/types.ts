@@ -6,6 +6,9 @@ export type Vitals = {
   bpPulse?: number;
   airTemp: number;
   humidity: number;
+  waterTemp?: number;
+  liquidEmpty?: boolean;
+  heaterManualOn?: boolean;
   updatedAt: string;
 };
 
@@ -24,7 +27,7 @@ export type Patient = {
 };
 
 export function defaultVitals(): Vitals {
-  return { bpm: 72, spo2: 98, systolic: 120, diastolic: 78, bpPulse: 72, airTemp: 23, humidity: 45, updatedAt: new Date().toISOString() };
+  return { bpm: 72, spo2: 98, systolic: 120, diastolic: 78, bpPulse: 72, airTemp: 23, humidity: 45, waterTemp: 22, liquidEmpty: false, heaterManualOn: false, updatedAt: new Date().toISOString() };
 }
 
 export function simulateVitals(prev: Vitals): Vitals {
