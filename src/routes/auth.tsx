@@ -47,10 +47,15 @@ function AuthPage() {
         toast.success("Account created");
       } else {
         const identifierTrim = identifier.trim();
-        if (identifierTrim.includes("@")) {
-          const { error } = await supabase.auth.signInWithPassword({ email: identifierTrim, password });
-          if (error) throw new Error("Invalid credentials");
-        } else {
+        try {
+          if (identifierTrim.includes("@")) {
+            const { error } = await supabase.auth.signInWithPassword({ email: identifierTrim, password });
+            if (error) throw error;
+          } else {
+            throw new Error("Use login helper");
+          }
+        } catch {
+          // Server-side xavfsiz autentifikatsiya (yangi sb_publishable API kalitlari bilan 100% ishlaydi)
           const { signInWithLogin } = await import("@/lib/auth.functions");
           const tokens = await signInWithLogin({ data: { login: identifierTrim, password } });
           const { error } = await supabase.auth.setSession({

@@ -33,6 +33,9 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_hM5Sqwj4mWZ3Dn-owh6eKg_O3bmrKOx
 
 function createSupabaseClient() {
   return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+    global: {
+      fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY),
+    },
     auth: {
       persistSession: true,
       autoRefreshToken: true,

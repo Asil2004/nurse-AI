@@ -11,28 +11,22 @@ export const signInWithLogin = createServerFn({ method: "POST" })
     const { createClient } = await import("@supabase/supabase-js");
     let email = data.login.trim();
 
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     if (!email.includes("@")) {
-      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
       const { data: prof } = await supabaseAdmin
         .from("profiles")
         .select("email")
         .eq("login_username", email)
         .maybeSingle();
       if (!prof?.email) {
-        // Generic error — do not leak whether the username exists.
         throw new Error("Invalid credentials");
       }
       email = prof.email;
     }
 
-    const supabase = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_PUBLISHABLE_KEY!,
-      { auth: { storage: undefined, persistSession: false, autoRefreshToken: false } },
-    );
-    const { data: session, error } = await supabase.auth.signInWithPassword({ email, password: data.password });
+    const { data: session, error } = await supabaseAdmin.auth.signInWithPassword({ email, password: data.password });
     if (error || !session.session) {
-      throw new Error("Invalid credentials");
+      throw new Error(error?.message || "Invalid credentials");
     }
     return {
       access_token: session.session.access_token,
