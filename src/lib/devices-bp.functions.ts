@@ -35,7 +35,8 @@ export const requestBpMeasurement = createServerFn({ method: "POST" })
 async function assertAllowed(supabase: { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown }>; from: (t: string) => { select: (s: string) => { eq: (c: string, v: string) => { maybeSingle: () => Promise<{ data: { id: string; assigned_nurse_id: string | null } | null }> } } } }, userId: string, deviceId: string) {
   const { data: isAdminRow } = await supabase.rpc("has_role", { _user_id: userId, _role: "admin" });
   if (isAdminRow) return;
-  const { data: patient } = await supabase.from("patients").select("id, assigned_nurse_id").eq("device_id", deviceId).maybeSingle();
+  const { data: pList } = await (supabase.from("patients") as any).select("id, assigned_nurse_id").eq("device_id", deviceId).limit(1);
+  const patient = pList?.[0];
   if (!patient || patient.assigned_nurse_id !== userId) throw new Error("Forbidden");
 }
 
@@ -69,8 +70,8 @@ export const toggleHeaterNow = createServerFn({ method: "POST" })
 
     let targetPatientId = dev?.assigned_patient_id;
     if (!targetPatientId) {
-      const { data: p } = await supabaseAdmin.from("patients").select("id").eq("device_id", data.deviceId).maybeSingle();
-      targetPatientId = p?.id;
+      const { data: pList } = await supabaseAdmin.from("patients").select("id").eq("device_id", data.deviceId).order("updated_at", { ascending: false }).limit(1);
+      targetPatientId = pList?.[0]?.id;
     }
 
     let nextState = data.enable;

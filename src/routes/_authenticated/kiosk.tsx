@@ -68,8 +68,20 @@ function MedicalKioskPage() {
         if (data?.device_id) setSelectedDevice(data.device_id);
         return data;
       } else {
-        const { data } = await supabase.from("patients").select("*").eq("device_id", selectedDevice).maybeSingle();
-        return data;
+        // 1. Agar qurilmaga biriktirilgan bemor ID si devices jadvalida mavjud bo'lsa
+        const { data: dev } = await supabase.from("devices").select("assigned_patient_id").eq("device_id", selectedDevice).maybeSingle();
+        if (dev?.assigned_patient_id) {
+          const { data: p } = await supabase.from("patients").select("*").eq("id", dev.assigned_patient_id).maybeSingle();
+          if (p) return p;
+        }
+        // 2. device_id bo'yicha oxirgi bemorni olish (bir nechta bemor bir xil kassa/kabinaga yozilgan bo'lsa ham xato bermasligi uchun limit(1))
+        const { data: pList } = await supabase
+          .from("patients")
+          .select("*")
+          .eq("device_id", selectedDevice)
+          .order("updated_at", { ascending: false })
+          .limit(1);
+        return pList?.[0] || null;
       }
     },
     refetchInterval: 1000,
@@ -91,7 +103,31 @@ function MedicalKioskPage() {
     };
   }, [refetch]);
 
-  const vitals = (currentPatient?.current_vitals as any) || {};
+  // Agar bemor biriktirilmagan bo'lsa ham kabinaning jismoniy sensorlaridan (vitals jadvali) oxirgi ko'rsatkichlarni olish
+  const { data: cabinFallbackVitals } = useQuery({
+    queryKey: ["kiosk-cabin-vitals", selectedDevice],
+    queryFn: async () => {
+      if (!selectedDevice) return null;
+      const { data } = await supabase
+        .from("vitals")
+        .select("*")
+        .eq("device_id", selectedDevice)
+        .order("recorded_at", { ascending: false })
+        .limit(1);
+      return data?.[0] || null;
+    },
+    refetchInterval: 1000,
+    enabled: !currentPatient,
+  });
+
+  const vitals = (currentPatient?.current_vitals as any) || (cabinFallbackVitals ? {
+    bpm: cabinFallbackVitals.bpm || 0,
+    spo2: cabinFallbackVitals.spo2 || 0,
+    airTemp: cabinFallbackVitals.air_temp || 0,
+    humidity: cabinFallbackVitals.humidity || 0,
+    systolic: cabinFallbackVitals.systolic || 0,
+    diastolic: cabinFallbackVitals.diastolic || 0,
+  } : {});
 
   const startAntisepticFn = useServerFn(startAntisepticNow);
   const toggleHeaterFn = useServerFn(toggleHeaterNow);

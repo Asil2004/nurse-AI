@@ -46,12 +46,18 @@ export const Route = createFileRoute("/api/public/device/vitals")({
 
         let patientId: string | null = device.assigned_patient_id ?? null;
         if (!patientId) {
-          const { data: p } = await supabaseAdmin.from("patients").select("id").eq("device_id", deviceId).maybeSingle();
-          if (p?.id) {
-            patientId = p.id;
+          const { data: pList } = await supabaseAdmin
+            .from("patients")
+            .select("id")
+            .eq("device_id", deviceId)
+            .order("updated_at", { ascending: false })
+            .limit(1);
+          if (pList?.[0]?.id) {
+            patientId = pList[0].id;
             await supabaseAdmin.from("devices").update({ assigned_patient_id: patientId }).eq("device_id", deviceId);
           }
         }
+
         if (patientId) {
           const { data: pData } = await supabaseAdmin.from("patients").select("current_vitals").eq("id", patientId).maybeSingle();
           const prevVitals = (pData?.current_vitals as any) || {};
@@ -72,18 +78,22 @@ export const Route = createFileRoute("/api/public/device/vitals")({
 
           await supabaseAdmin.from("patients").update({ current_vitals: current }).eq("id", patientId);
 
-          // Faqat yangi ma'lumotlar bor bo'lsa vitals tarixiga yozish
-          await supabaseAdmin.from("vitals").insert({
-            patient_id: patientId, device_id: deviceId,
-            bpm: b.bpm ?? null, spo2: b.spo2 ?? null,
-            systolic: (b.systolic && b.systolic > 0) ? b.systolic : null,
-            diastolic: (b.diastolic && b.diastolic > 0) ? b.diastolic : null,
-            air_temp: b.air_temp ?? null, humidity: b.humidity ?? null,
-          });
           if (b.liquid_empty) {
             await supabaseAdmin.from("liquid_events").insert({ patient_id: patientId, device_id: deviceId });
           }
         }
+
+        // Bemor biriktirilgan bo'lmasa ham, sensor ma'lumotlarini vitals jadvaliga saqlaymiz
+        await supabaseAdmin.from("vitals").insert({
+          patient_id: patientId ?? null,
+          device_id: deviceId,
+          bpm: b.bpm ?? null,
+          spo2: b.spo2 ?? null,
+          systolic: (b.systolic && b.systolic > 0) ? b.systolic : null,
+          diastolic: (b.diastolic && b.diastolic > 0) ? b.diastolic : null,
+          air_temp: b.air_temp ?? null,
+          humidity: b.humidity ?? null,
+        });
 
         // Commands: BP + antiseptic. Also return heater thresholds for the device.
         const dev = device as { bp_measure_requested?: boolean; antiseptic_start_requested?: boolean; antiseptic_duration_s?: number; heater_on_c?: number; heater_off_c?: number };

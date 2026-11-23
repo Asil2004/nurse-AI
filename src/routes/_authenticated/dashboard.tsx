@@ -77,6 +77,10 @@ function Dashboard() {
   });
 
   const updateDevice = async (patientId: string, deviceId: string | null) => {
+    if (deviceId) {
+      // Bir xil kabinaga ikkita bemor biriktirilib qolmasligi uchun boshqa bemorlardan bo'shatamiz
+      await supabase.from("patients").update({ device_id: null }).eq("device_id", deviceId);
+    }
     const { error } = await supabase.from("patients").update({ device_id: deviceId }).eq("id", patientId);
     if (error) { toast.error(error.message); return; }
     // Keep devices.assigned_patient_id in sync so the /api/public/device/vitals endpoint routes readings.
