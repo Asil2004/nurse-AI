@@ -35,7 +35,7 @@
 #define DEFAULT_WIFI_SSID    "cail"
 #define DEFAULT_WIFI_PASS    "12345678"
 #define DEFAULT_DEVICE_ID    "box1"
-#define DEFAULT_PAIRING_TOKEN "08dc27abf93e4ce08418a89f86396647"
+#define DEFAULT_PAIRING_TOKEN "fec1748fbcf94e829561b32d9727169d"
 
 #define API_HOST             "nurse-ai.onrender.com"
 #define API_PORT             443
@@ -58,6 +58,11 @@
 #define NTC_T_NOMINAL        25.0f
 #define NTC_BETA             3950.0f
 #define ADC_MAX              4095.0f
+
+// Ulanish sxemasi:
+// true:  3.3V -> 10k Rezistor -> PIN 34 -> NTC -> GND (Ko'p tarqalgan)
+// false: 3.3V -> NTC -> PIN 34 -> 10k Rezistor -> GND
+#define NTC_CONNECTED_TO_GND true
 
 #define LIQUID_PRESENT_LEVEL LOW
 #define SERVO_IDLE_DEG       0
@@ -121,10 +126,20 @@ float readNtcTempC() {
   for (int i = 0; i < 16; i++) { acc += analogRead(PIN_NTC); delay(1); }
   float val = acc / 16.0f;
   val = constrain(val, 1.0f, 4094.0f);
+
+#if NTC_CONNECTED_TO_GND
+  // 3.3V -> 10k Rezistor -> PIN 34 -> NTC -> GND
+  float r2 = NTC_R_SERIES * val / (ADC_MAX - val);
+#else
+  // 3.3V -> NTC -> PIN 34 -> 10k Rezistor -> GND
   float r2 = NTC_R_SERIES * (ADC_MAX - val) / val;
+#endif
+
+  if (r2 <= 0.0f) return 25.0f;
   float tK = 1.0f / (1.0f / (NTC_T_NOMINAL + 273.15f)
              + (1.0f / NTC_BETA) * logf(r2 / NTC_R_NOMINAL));
-  return tK - 273.15f;
+  float tempC = tK - 273.15f;
+  return constrain(tempC, -10.0f, 100.0f);
 }
 
 void startAntiseptic(int durationS) {
@@ -394,12 +409,12 @@ void envTask(void *pv) {
     }
 
     if (ahtOk && xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(200)) == pdTRUE) {
-      sensors_event_t t, h;
-      aht.getEvent(&t, &h);
+      sensors_event_t humidity, temp;
+      aht.getEvent(&humidity, &temp);
       xSemaphoreGive(i2cMutex);
       if (xSemaphoreTake(stateMutex, pdMS_TO_TICKS(150)) == pdTRUE) {
-        vitals.airTemp  = t.temperature;
-        vitals.humidity = h.relative_humidity;
+        vitals.airTemp  = temp.temperature;
+        vitals.humidity = humidity.relative_humidity;
         xSemaphoreGive(stateMutex);
       }
     }
